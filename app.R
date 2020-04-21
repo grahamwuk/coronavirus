@@ -100,38 +100,65 @@ dias_deaths<-function(n,data){
 #User Interface----
 ui <- fluidPage(
   titlePanel("COVID-19 Data Explorer"),
-  fluidRow(
-    column(4,
-           sliderInput(inputId="num",label="Select How Many Countries To Include",value=10, min=1, max=200)
-    ),
-    column(4,
-           selectInput(inputId="ColorBy", 
-                       label="Colour By:", 
-                       choices = c("country", "lockdown_status")
-           )
-    ),
-    column(4,
-           checkboxInput(inputId="PerCap", 
-                         label="Make figures per 100k population" 
-           )
-    )
+  wellPanel(h4("Input Options"),
+            fluidRow(column(4,sliderInput(inputId="num", label="Select How Many Countries To Include",value=10, min=1, max=200))),
+            fluidRow(column(4,sliderInput(inputId="case_threshold",label="Select Case Threshold for Date Alignment",value=100, min=1, max=1000))),
+            fluidRow(column(4,sliderInput(inputId="death_threshold",label="Select Death Threshold for Date Alignment",value=5, min=1, max=100))),
+            #fluidRow(column(2,selectInput(inputId="ColorBy", label="Colour By:", choices = c("country", "lockdown_status"))),
+            #fluidRow(column(2,checkboxInput(inputId="PerCap", label="Figures per population"))
   ),
   tabsetPanel(
     tabPanel(title="Cases",
-             mainPanel(plotlyOutput("cases_date")),
-             sliderInput(inputId="case_threshold",label="Select Case Threshold for Alignment",value=100, min=1, max=1000),
-             mainPanel(plotlyOutput("cases_align")),
-             mainPanel(plotlyOutput("cases_bar"))),
+             mainPanel(h4("Total Cases By Country and Date"),
+                       plotlyOutput("cases_date"),
+                       br(),
+                       h4("Total Cases By Country and Date - Coloured by Lockdown Status"),                       
+                       plotlyOutput("cases_lockdown"),
+                       br(),
+                       h4("Total Cases By Country - Aligned"),
+                       plotlyOutput("cases_align"),
+                       br(),
+                       h4("Total Cases per 100k population By Country - Aligned"),                       
+                       plotlyOutput("cases_align_PerCap"),
+                       br(),
+                       h4("Total Cases By Country - Latest Figures"), 
+                       plotlyOutput("cases_bar")
+             )
+    ),
     tabPanel(title="Deaths",
-             mainPanel(plotlyOutput("deaths_date")),
-             sliderInput(inputId="death_threshold",label="Select Death Threshold for Alignment",value=1, min=1, max=100),
-             mainPanel(plotlyOutput("deaths_align")),
-             mainPanel(plotlyOutput("deaths_bar"))),
-    tabPanel(title="Deaths v Cases",
-             mainPanel(plotlyOutput("dpc_scatter")),
-             mainPanel(plotlyOutput("dpc_bar"))),
+             mainPanel(h4("Total Deaths By Country and Date"),
+                       plotlyOutput("deaths_date"),
+                       br(),
+                       h4("Total Deaths By Country and Date - Coloured by Lockdown Status"),
+                       plotlyOutput("deaths_lockdown"),
+                       br(),
+                       h4("Total Deaths By Country - Aligned"),                       
+                       plotlyOutput("deaths_align"),
+                       br(),
+                       h4("Total Deaths per 100k population By Country - Aligned"),                       
+                       plotlyOutput("deaths_align_PerCap"),
+                       br(),
+                       h4("Total Deaths By Country - Latest Figures"),                       
+                       plotlyOutput("deaths_bar")
+             )
+    ),
+    tabPanel(title="Deaths per Case",
+             mainPanel(h4("Deaths v Cases Scatter"),
+                       plotlyOutput("dpc_scatter"),
+                       br(),
+                       h4("Deaths per Case By Country and Date"),
+                       plotlyOutput("dpc_date"),
+                       br(),
+                       h4("Deaths per Case By Country - Aligned"),
+                       plotlyOutput("dpc_align"),
+                       br(),
+                       h4("Deaths per Case By Country - Latest Figures"),                        
+                       plotlyOutput("dpc_bar")
+             )
+    ),
     tabPanel(title="DataTable",
-             "Latest Data: ", max(covid_joined$date),
+             h3("Latest Data: ", max(covid_joined$date)),
+             br(),
              DT::dataTableOutput("tableFiles")
     )
   )
@@ -145,21 +172,13 @@ server <- function(input, output) {
       mutate(days_since_case_threshold=dias_cases(input$case_threshold,covid_joined)) %>%
       mutate(days_since_death_threshold=dias_deaths(input$death_threshold,covid_joined))
   })
-  #Define the yaxis column depending on the selected input
-   selected_yaxis <- reactive({
-     m <- covid_calc()
-     if (input$PerCap == TRUE) {m <- m %>% mutate(case_yaxis=cases_per_100k_pop)}
-     if (input$PerCap == TRUE) {m <- m %>% mutate(death_yaxis=deaths_per_100k_pop)}
-     if (input$PerCap == FALSE) {m <- m %>% mutate(case_yaxis=cases)}
-     if (input$PerCap == FALSE) {m <- m %>% mutate(death_yaxis=deaths)}
-   })
   
   #Create filtered versions of both datasets only containing the countries of interest
   selected_countries <- reactive({
     g <- covid_joined_latest %>%
       top_n(input$num, wt=cases) %>%
       select(country) %>%
-      left_join(selected_yaxis(), by="country") %>%
+      left_join(covid_calc(), by="country") %>%
       arrange(desc(cases))
   })
   selected_countries_latest <- reactive({
@@ -168,48 +187,39 @@ server <- function(input, output) {
       arrange(desc(cases))
   })
   
-  #Create all plots using plotly
+  #Plots on Cases tab ----
   output$cases_date <- renderPlotly({
     datos<-selected_countries()
     datos<-datos[order(datos$country,datos$date),]
-    p<-plot_ly(datos,x=~date,y=~case_yaxis,name=~country,type="scatter",mode="lines")%>%
+    p<-plot_ly(datos,x=~date,y=~cases,name=~country,type="scatter",mode="lines")%>%
       config(displayModeBar=T)%>%
       layout(yaxis=list(type="log"))
+    p
+  })
+  output$cases_lockdown <- renderPlotly({
+    datos<-selected_countries()
+    datos<-datos[order(datos$country,datos$date),]
+    p<-plot_ly(datos,x=~date,y=~cases,name=~country,type="scatter",mode="lines",color=~lockdown_status)%>%
+      config(displayModeBar=T)%>%
+      layout(yaxis=list(type="log"), legend=~lockdown_status)
     p
   })
   output$cases_align <- renderPlotly({
     datos<-selected_countries()
     datos<-datos[datos$cases>=as.numeric(input$case_threshold),]
     datos<-datos[order(datos$country,datos$days_since_case_threshold),]
-    p<-plot_ly(datos,x=~days_since_case_threshold,y=~case_yaxis,name=~country,type="scatter",mode="lines")%>%
+    p<-plot_ly(datos,x=~days_since_case_threshold,y=~cases,name=~country,type="scatter",mode="lines")%>%
       config(displayModeBar=T)%>%
       layout(yaxis=list(type="log"))
     p
   })
-  output$deaths_date <- renderPlotly({
+  output$cases_align_PerCap <- renderPlotly({
     datos<-selected_countries()
-    datos<-datos[order(datos$country,datos$date),]
-    p<-plot_ly(datos,x=~date,y=~death_yaxis,name=~country,type="scatter",mode="lines")%>%
+    datos<-datos[datos$cases>=as.numeric(input$case_threshold),]
+    datos<-datos[order(datos$country,datos$days_since_case_threshold),]
+    p<-plot_ly(datos,x=~days_since_case_threshold,y=~cases_per_100k_pop,name=~country,type="scatter",mode="lines")%>%
       config(displayModeBar=T)%>%
       layout(yaxis=list(type="log"))
-    p
-  })
-  output$deaths_align <- renderPlotly({
-    datos<-selected_countries()
-    datos<-datos[order(datos$country,datos$days_since_death_threshold),]
-    p<-plot_ly(datos,x=~days_since_death_threshold,y=~death_yaxis,name=~country,type="scatter",mode="lines")%>%
-      config(displayModeBar=T)%>%
-      layout(yaxis=list(type="log"))
-    p
-  })
-  output$dpc_scatter <- renderPlotly({
-    datos<-covid_joined_latest
-    datos<-datos[datos$deaths_per_case>0,]
-    datos<-datos[order(datos$deaths),]
-    p<-plot_ly(datos,x=~cases,y=~deaths,type="scatter",mode="markers",color=~1/deaths_per_case
-    )%>%
-      config(displayModeBar=T)%>%
-      layout(yaxis=list(type="log"),xaxis=list(type="log"))
     p
   })
   output$cases_bar <- renderPlotly({
@@ -224,6 +234,40 @@ server <- function(input, output) {
                      categoryarray = ~cases))
     p
   })
+  
+  #Plots on Deaths tab----
+  output$deaths_date <- renderPlotly({
+    datos<-selected_countries()
+    datos<-datos[order(datos$country,datos$date),]
+    p<-plot_ly(datos,x=~date,y=~deaths,name=~country,type="scatter",mode="lines")%>%
+      config(displayModeBar=T)%>%
+      layout(yaxis=list(type="log"))
+    p
+  })
+  output$deaths_lockdown <- renderPlotly({
+    datos<-selected_countries()
+    datos<-datos[order(datos$country,datos$date),]
+    p<-plot_ly(datos,x=~date,y=~deaths,name=~country,type="scatter",mode="lines",color=~lockdown_status)%>%
+      config(displayModeBar=T)%>%
+      layout(yaxis=list(type="log"), legend=~lockdown_status)
+    p
+  })
+  output$deaths_align <- renderPlotly({
+    datos<-selected_countries()
+    datos<-datos[order(datos$country,datos$days_since_death_threshold),]
+    p<-plot_ly(datos,x=~days_since_death_threshold,y=~deaths,name=~country,type="scatter",mode="lines")%>%
+      config(displayModeBar=T)%>%
+      layout(yaxis=list(type="log"))
+    p
+  })
+  output$deaths_align_PerCap <- renderPlotly({
+    datos<-selected_countries()
+    datos<-datos[order(datos$country,datos$days_since_death_threshold),]
+    p<-plot_ly(datos,x=~days_since_death_threshold,y=~deaths_per_100k_pop,name=~country,type="scatter",mode="lines")%>%
+      config(displayModeBar=T)%>%
+      layout(yaxis=list(type="log"))
+    p
+  })
   output$deaths_bar <- renderPlotly({
     datos<-selected_countries_latest()
     datos$country <- factor(datos$country, levels = unique(datos$country)[order(datos$deaths, decreasing = TRUE)])
@@ -234,6 +278,34 @@ server <- function(input, output) {
         xaxis = list(title = "",
                      categoryorder = "array",
                      categoryarray = ~deaths))
+    p
+  })
+  
+  #Plots on Deaths per Case tab----
+  output$dpc_scatter <- renderPlotly({
+    datos<-covid_joined_latest
+    datos<-datos[datos$deaths_per_case>0,]
+    datos<-datos[order(datos$deaths),]
+    p<-plot_ly(datos,x=~cases,y=~deaths,type="scatter",mode="markers",color=~1/deaths_per_case,text=~country
+    )%>%
+      config(displayModeBar=T)%>%
+      layout(yaxis=list(type="log"),xaxis=list(type="log"))
+    p
+  })
+  output$dpc_date <- renderPlotly({
+    datos<-selected_countries()
+    datos<-datos[order(datos$country,datos$date),]
+    p<-plot_ly(datos,x=~date,y=~deaths/cases,name=~country,type="scatter",mode="lines")%>%
+      config(displayModeBar=T)%>%
+      layout(yaxis=list(type="log"))
+    p
+  })
+  output$dpc_align <- renderPlotly({
+    datos<-selected_countries()
+    datos<-datos[order(datos$country,datos$days_since_death_threshold),]
+    p<-plot_ly(datos,x=~days_since_case_threshold,y=~deaths/cases,name=~country,type="scatter",mode="lines")%>%
+      config(displayModeBar=T)%>%
+      layout(yaxis=list(type="log"))
     p
   })
   output$dpc_bar <- renderPlotly({
@@ -248,7 +320,31 @@ server <- function(input, output) {
                      categoryarray = ~deaths_per_case))
     p
   })
-  output$tableFiles <- DT::renderDataTable(covid_joined_latest)
+  
+  #Table on Data Table tab----
+  output$tableFiles <- DT::renderDataTable({
+    DT::datatable(covid_joined_latest, options = list(lengthMenu = c(5, 30, 50), pageLength = 50))
+  })
 }
 #Run App----
 shinyApp(ui = ui, server = server)
+
+#To Do List----
+
+#Coding Tasks
+#1 - Calculate new cases and new deaths from this data (no need for separate source), and plot them on a new tab
+#2 - Automate data sourcing by using web scraping instead of manual download
+#3 - Allow more selection options for countries, e.g. Europe-only, exclude low pop countries, only rich countries, etc
+#4 - Make input$ColorBy work to select either the colour or lockdown chart, so only one is displayed at once
+#5 - Fix legend of lockdown chart to show the three statuses: locked down, partial, none
+#6 - Set specific colors for the lockdown chart: red for locked down, yellow for partial, green for none
+#7 - Make input$PerCap work to select either the raw case/death figures or the per 100k population figures,  so only one is displayed at once
+#8 - Fix color scale of Scatterplot so there is more variety and it goes from red (high) to green (low)
+
+#Data Sourcing Tasks
+#1 - Add more country demographic data, e.g. continent, population density, GDP per capita, etc
+#2 - Add details and key dates of shutdowns in each country, e.g. school closures, flight restrictions
+#3 - Add data on testing thoroughness
+#4 - Add data on healthcare system types
+#5 - Consider definition inconsistencies between countries, e.g. death FROM covid19 vs death WITH covid19
+#6 - Add data on active or recovered cases
