@@ -6,6 +6,7 @@ library(scales)
 library(gapminder)
 library(plotly)
 library(RColorBrewer)
+library(janitor)
 
 #Working Directory
 #setwd("C:/Users/Graham/Documents/R/My Codes/Shiny/Coronavirus App")
@@ -70,6 +71,24 @@ covid_joined_latest <- covid_death_neat %>%
   filter(date==max(date)) %>%
   left_join(covid_joined, by=c("country","date")) %>%
   arrange(desc(cases))
+
+#New Cases, New Deaths 
+cases_new <- covid_case_neat %>%
+  mutate(New_cases = c(0,diff(cases))) %>%
+  group_by(country) %>% 
+  filter(New_cases>=1) %>%
+  ungroup()
+
+deaths_new <- covid_death_neat %>%
+  mutate(New_deaths = c(0,diff(deaths))) %>%
+  group_by(country) %>% 
+  filter(New_deaths>=1) %>%
+  ungroup() 
+
+
+
+
+
 
 #Defining Functions----
 
@@ -156,6 +175,15 @@ ui <- fluidPage(
                        plotlyOutput("dpc_bar")
              )
     ),
+    tabPanel(title="New Cases, Deaths",
+             mainPanel(h4("New cases Scatter"),
+                       plotlyOutput("new_cases_scatter"),
+                       br(),
+                       h4("New cases Scatter"),
+                       plotlyOutput("new_cases_scatter"),
+                       br()
+             )
+    ),
     tabPanel(title="DataTable",
              h3("Latest Data: ", max(covid_joined$date)),
              br(),
@@ -199,7 +227,7 @@ server <- function(input, output) {
   output$cases_lockdown <- renderPlotly({
     datos<-selected_countries()
     datos<-datos[order(datos$country,datos$date),]
-    p<-plot_ly(datos,x=~date,y=~cases,name=~country,type="scatter",mode="lines",color=~lockdown_status)%>%
+    p<-plot_ly(datos,x=~date,y=~cases,text=~country,type="scatter",mode="lines",color=~lockdown_status)%>%
       config(displayModeBar=T)%>%
       layout(yaxis=list(type="log"), legend=~lockdown_status)
     p
@@ -247,7 +275,7 @@ server <- function(input, output) {
   output$deaths_lockdown <- renderPlotly({
     datos<-selected_countries()
     datos<-datos[order(datos$country,datos$date),]
-    p<-plot_ly(datos,x=~date,y=~deaths,name=~country,type="scatter",mode="lines",color=~lockdown_status)%>%
+    p<-plot_ly(datos,x=~date,y=~deaths,text=~country,type="scatter",mode="lines",color=~lockdown_status)%>%
       config(displayModeBar=T)%>%
       layout(yaxis=list(type="log"), legend=~lockdown_status)
     p
@@ -321,6 +349,24 @@ server <- function(input, output) {
     p
   })
   
+  #Plots of new cases and deaths
+  output$new_cases_scatter <- renderPlotly({
+    datos<-cases_new
+    p<-plot_ly(datos,x=~date,y=~New_cases,type="scatter",mode="lines+markers",name=~country,text=~country
+    )%>%
+      config(displayModeBar=T)
+    p
+  })
+  
+  output$new_deaths_scatter <- renderPlotly({
+    datos<-deaths_new
+    p<-plot_ly(datos,x=~date,y=~New_deaths,type="scatter",mode="lines+markers",name=~country,text=~country
+    )%>%
+      config(displayModeBar=T)
+    p
+  })
+  
+  
   #Table on Data Table tab----
   output$tableFiles <- DT::renderDataTable({
     DT::datatable(covid_joined_latest, options = list(lengthMenu = c(5, 30, 50), pageLength = 50))
@@ -332,7 +378,7 @@ shinyApp(ui = ui, server = server)
 #To Do List----
 
 #Coding Tasks
-#1 - Calculate new cases and new deaths from this data (no need for separate source), and plot them on a new tab
+#1 - Calculate new cases and new deaths from this data (no need for separate source), and plot them on a new tab---DONE?
 #2 - Automate data sourcing by using web scraping instead of manual download
 #3 - Allow more selection options for countries, e.g. Europe-only, exclude low pop countries, only rich countries, etc
 #4 - Make input$ColorBy work to select either the colour or lockdown chart, so only one is displayed at once
